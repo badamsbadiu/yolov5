@@ -30,7 +30,7 @@ from models.common import (
     C3SPP,
     C3TR,
     SPP,
-    SPPF,
+    AtrousSPPF,
     Bottleneck,
     BottleneckCSP,
     C3Ghost,
@@ -53,6 +53,7 @@ from models.experimental import MixConv2d
 from utils.autoanchor import check_anchor_order
 from utils.general import LOGGER, check_version, check_yaml, colorstr, make_divisible, print_args
 from utils.plots import feature_visualization
+from models.common import BackboneWithAttention
 from utils.torch_utils import (
     fuse_conv_and_bn,
     initialize_weights,
@@ -407,7 +408,7 @@ def parse_model(d, ch):
             Bottleneck,
             GhostBottleneck,
             SPP,
-            SPPF,
+            AtrousSPPF,
             DWConv,
             MixConv2d,
             Focus,

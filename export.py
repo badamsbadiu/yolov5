@@ -278,7 +278,7 @@ def export_torchscript(model, im, file, optimize, prefix=colorstr("TorchScript:"
         optimize_for_mobile(ts)._save_for_lite_interpreter(str(f), _extra_files=extra_files)
     else:
         ts.save(str(f), _extra_files=extra_files)
-    return f, None
+    return f, Nones
 
 
 @try_export
