@@ -1,4 +1,4 @@
-# Ultralytics YOLOv5 🚀, AGPL-3.0 license
+# Ultralytics 🚀 AGPL-3.0 License - https://ultralytics.com/license
 """Dataloaders and dataset utils."""
 
 import contextlib
@@ -405,8 +405,12 @@ class LoadImages:
             self.cap = None
             # fmt: off
         assert self.nf > 0, (
+<<<<<<< HEAD
             f"No images or videos found in {p}. "
             f"Supported formats are:\nimages: {image_formats}, videos: {video_formats}"
+=======
+            f"No images or videos found in {p}. Supported formats are:\nimages: {IMG_FORMATS}\nvideos: {VID_FORMATS}"
+>>>>>>> fe1d4d9947735473006c68513168fef093ff17ce
         )
         # fmt: on
 
@@ -839,6 +843,7 @@ class LoadImagesAndLabels(Dataset):
         if cache_images:
             b, gb = 0, 1 << 30  # bytes of cached images, bytes per gigabytes
             self.im_hw0, self.im_hw = [None] * n, [None] * n
+<<<<<<< HEAD
             fcn = (
                 self.cache_images_to_disk if cache_images == "disk" else self.load_image
             )
@@ -861,6 +866,20 @@ class LoadImagesAndLabels(Dataset):
                 pbar.desc = f"{prefix}Caching images ({b / gb:.1f}GB {cache_images})"
 
             pbar.close()
+=======
+            fcn = self.cache_images_to_disk if cache_images == "disk" else self.load_image
+            with ThreadPool(NUM_THREADS) as pool:
+                results = pool.imap(lambda i: (i, fcn(i)), self.indices)
+                pbar = tqdm(results, total=len(self.indices), bar_format=TQDM_BAR_FORMAT, disable=LOCAL_RANK > 0)
+                for i, x in pbar:
+                    if cache_images == "disk":
+                        b += self.npy_files[i].stat().st_size
+                    else:  # 'ram'
+                        self.ims[i], self.im_hw0[i], self.im_hw[i] = x  # im, hw_orig, hw_resized = load_image(self, i)
+                        b += self.ims[i].nbytes * WORLD_SIZE
+                    pbar.desc = f"{prefix}Caching images ({b / gb:.1f}GB {cache_images})"
+                pbar.close()
+>>>>>>> fe1d4d9947735473006c68513168fef093ff17ce
 
     def check_cache_ram(self, safety_margin=0.1, prefix=""):
         """Checks if available RAM is sufficient for caching images, adjusting for a safety margin."""
@@ -943,9 +962,17 @@ class LoadImagesAndLabels(Dataset):
     #     return self
 
 
+<<<<<<< HEAD
 def __getitem__(self, index):
     """Fetches the dataset item at the given index, considering linear, shuffled, or weighted sampling."""
     index = self.indices[index]  # linear, shuffled, or image_weights
+=======
+        hyp = self.hyp
+        if mosaic := self.mosaic and random.random() < hyp["mosaic"]:
+            # Load mosaic
+            img, labels = self.load_mosaic(index)
+            shapes = None
+>>>>>>> fe1d4d9947735473006c68513168fef093ff17ce
 
     hyp = self.hyp
     mosaic = self.mosaic and random.random() < hyp["mosaic"]
@@ -1435,12 +1462,17 @@ def verify_image_label(args):
                         1,
                     )
                 lb = np.array(lb, dtype=np.float32)
+<<<<<<< HEAD
             nl = len(lb)
             if nl:
                 assert (
                     lb.shape[1] == 5
                 ), f"labels require 5 columns, {
                     lb.shape[1]} columns detected"
+=======
+            if nl := len(lb):
+                assert lb.shape[1] == 5, f"labels require 5 columns, {lb.shape[1]} columns detected"
+>>>>>>> fe1d4d9947735473006c68513168fef093ff17ce
                 assert (lb >= 0).all(), f"negative label values {lb[lb < 0]}"
                 assert (
                     lb[:, 1:] <= 1
