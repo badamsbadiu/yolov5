@@ -15,7 +15,6 @@ from multiprocessing.pool import Pool, ThreadPool
 from pathlib import Path
 from threading import Thread
 from urllib.parse import urlparse
-
 import numpy as np
 import psutil
 import torch
@@ -25,7 +24,6 @@ import yaml
 from PIL import ExifTags, Image, ImageOps
 from torch.utils.data import DataLoader, Dataset, dataloader, distributed
 from tqdm import tqdm
-
 from utils.augmentations import (
     Albumentations,
     augment_hsv,
@@ -404,14 +402,9 @@ class LoadImages:
         else:
             self.cap = None
             # fmt: off
-        assert self.nf > 0, (
-<<<<<<< HEAD
-            f"No images or videos found in {p}. "
-            f"Supported formats are:\nimages: {image_formats}, videos: {video_formats}"
-=======
-            f"No images or videos found in {p}. Supported formats are:\nimages: {IMG_FORMATS}\nvideos: {VID_FORMATS}"
->>>>>>> fe1d4d9947735473006c68513168fef093ff17ce
-        )
+        assert (
+            self.nf > 0
+        ), f"No images or videos found in {p}. Supported formats are:\nimages: {IMG_FORMATS}\nvideos: {VID_FORMATS}"
         # fmt: on
 
     def __iter__(self):
@@ -644,16 +637,7 @@ def img2label_paths(img_paths):
 
 
 class LoadImagesAndLabels(Dataset):
-    """Loads images and their corresponding labels for training and validation in YOLOv5."""
-
     cache_version = 0.6  # dataset labels *.cache version
-    rand_interp_methods = [
-        cv2.INTER_NEAREST,
-        cv2.INTER_LINEAR,
-        cv2.INTER_CUBIC,
-        cv2.INTER_AREA,
-        cv2.INTER_LANCZOS4,
-    ]
 
     def __init__(
         self,
@@ -673,127 +657,79 @@ class LoadImagesAndLabels(Dataset):
         rank=-1,
         seed=0,
     ):
-        """Initializes the YOLOv5 dataset loader, handling images and their labels, caching, and preprocessing."""
         self.img_size = img_size
         self.augment = augment
-        self.hyp = hyp
+        self.hyp = hyp or {}
         self.image_weights = image_weights
         self.rect = False if image_weights else rect
-        # load 4 images at a time into a mosaic (only during training)
         self.mosaic = self.augment and not self.rect
         self.mosaic_border = [-img_size // 2, -img_size // 2]
         self.stride = stride
         self.path = path
         self.albumentations = Albumentations(size=img_size) if augment else None
 
-        try:
-            f = []  # image files
-            for p in path if isinstance(path, list) else [path]:
-                p = Path(p)  # os-agnostic
-                if p.is_dir():  # dir
-                    f += glob.glob(str(p / "**" / "*.*"), recursive=True)
-                    # f = list(p.rglob('*.*'))  # pathlib
-                elif p.is_file():  # file
-                    with open(p) as t:
-                        t = t.read().strip().splitlines()
-                        parent = str(p.parent) + os.sep
-                        # to global path
-                        f += [
-                            x.replace("./", parent, 1) if x.startswith("./") else x
-                            for x in t
-                        ]
-                        # f += [p.parent / x.lstrip(os.sep) for x in t]  # to global path (pathlib)
-                else:
-                    raise FileNotFoundError(f"{prefix}{p} does not exist")
-            self.im_files = sorted(
-                x.replace("/", os.sep)
-                for x in f
-                if x.split(".")[-1].lower() in IMG_FORMATS
-            )
-            # self.img_files = sorted([x for x in f if x.suffix[1:].lower() in IMG_FORMATS])  # pathlib
-            # fmt: off
-            assert self.im_files, f"{prefix}No images found"
-        except Exception as e:
-            raise Exception(
-                f"{prefix}Error loading data from {path}: {e}\n{HELP_URL}"
-            ) from e
-            # fmt: on
-        # Check cache
-        self.label_files = img2label_paths(self.im_files)  # labels
-        cache_path = (
-            p if p.is_file() else Path(self.label_files[0]).parent
-        ).with_suffix(".cache")
-        try:
-            cache, exists = (
-                np.load(cache_path, allow_pickle=True).item(),
-                True,
-            )  # load dict
-            # matches current version
-            assert cache["version"] == self.cache_version
-            assert cache["hash"] == get_hash(
-                self.label_files + self.im_files
-            )  # identical hash
-        except Exception:
-            cache, exists = (
-                self.cache_labels(cache_path, prefix),
-                False,
-            )  # run cache ops
-        # fmt: off
-        # Display cache
-        # found, missing, empty, corrupt, total
-        nf, nm, ne, nc, n = cache.pop("results")
-        if exists and LOCAL_RANK in {-1, 0}:
-            d = f"Scanning {cache_path}... {nf} images, {nm + ne} backgrounds, {nc} corrupt"
-        # fmt: on
-            tqdm(None, desc=prefix + d, total=n, initial=n,
-                 bar_format=TQDM_BAR_FORMAT)  # display cache results
-            if cache["msgs"]:
-                LOGGER.info("\n".join(cache["msgs"]))  # display warnings
-        # fmt: off
-        assert nf > 0 or not augment, f"{prefix}No labels found in {cache_path}, cannot start training. {HELP_URL}"
+        f = []
+        for p in path if isinstance(path, list) else [path]:
+            p = Path(p)
+            if p.is_dir():
+                f += glob.glob(str(p / "**" / "*.*"), recursive=True)
+            elif p.is_file():
+                with open(p) as t:
+                    t = t.read().strip().splitlines()
+                    parent = str(p.parent) + os.sep
+                    f += [x.replace("./", parent, 1) if x.startswith("./") else x for x in t]
+            else:
+                raise FileNotFoundError(f"{prefix}{p} does not exist")
 
-        # fmt: on
-        # Read cache
-        [cache.pop(k) for k in ("hash", "version", "msgs")]  # remove items
+        self.im_files = sorted(x.replace("/", os.sep) for x in f if x.split(".")[-1].lower() in IMG_FORMATS)
+        assert self.im_files, f"{prefix}No images found"
+
+        self.label_files = img2label_paths(self.im_files)
+        cache_path = (p if p.is_file() else Path(self.label_files[0]).parent).with_suffix(".cache")
+
+        try:
+            cache = np.load(cache_path, allow_pickle=True).item()
+            assert cache["version"] == self.cache_version
+            assert cache["hash"] == get_hash(self.label_files + self.im_files)
+        except Exception:
+            cache = self.cache_labels(cache_path, prefix)
+
+        nf, nm, ne, nc, n = cache.pop("results")
+        if LOCAL_RANK in {-1, 0}:
+            d = f"Scanning {cache_path}... {nf} images, {nm + ne} backgrounds, {nc} corrupt"
+            tqdm(None, desc=prefix + d, total=n, initial=n, bar_format=TQDM_BAR_FORMAT)
+            if cache["msgs"]:
+                LOGGER.info("\n".join(cache["msgs"]))
+
+        assert nf > 0 or not augment, f"{prefix}No labels found in {cache_path}, cannot start training."
+
+        [cache.pop(k) for k in ("hash", "version", "msgs")]
         labels, shapes, self.segments = zip(*cache.values())
-        nl = len(np.concatenate(labels, 0))  # number of labels
-        assert nl > 0 or not augment, f"{prefix}All labels empty in {im_file}"
+        nl = len(np.concatenate(labels, 0))
+        assert nl > 0 or not augment, f"{prefix}All labels empty in dataset"
 
         self.labels = list(labels)
         self.shapes = np.array(shapes)
-        self.im_files = list(cache.keys())  # update
-        self.label_files = img2label_paths(cache.keys())  # update
+        self.im_files = list(cache.keys())
+        self.label_files = img2label_paths(cache.keys())
 
-        # Filter images
         if min_items:
-            include = (
-                np.array([len(x) >= min_items for x in self.labels])
-                .nonzero()[0]
-                .astype(int)
-            )
-            LOGGER.info(f"{prefix}{n - len(include)}/{n} images filtered from dataset")
-
+            include = np.array([len(x) >= min_items for x in self.labels]).nonzero()[0].astype(int)
             self.im_files = [self.im_files[i] for i in include]
             self.label_files = [self.label_files[i] for i in include]
             self.labels = [self.labels[i] for i in include]
             self.segments = [self.segments[i] for i in include]
-            self.shapes = self.shapes[include]  # wh
+            self.shapes = self.shapes[include]
 
-        # Create indices
-        n = len(self.shapes)  # number of images
-        bi = np.floor(np.arange(n) / batch_size).astype(int)  # batch index
-        nb = bi[-1] + 1  # number of batches
-        self.batch = bi  # batch index of image
+        n = len(self.shapes)
+        bi = np.floor(np.arange(n) / batch_size).astype(int)
+        nb = bi[-1] + 1
+        self.batch = bi
         self.n = n
         self.indices = np.arange(n)
-        if rank > -1:  # DDP indices (see: SmartDistributedSampler)
-            # force each rank (i.e. GPU process) to sample the same subset of data on every epoch
-            self.indices = self.indices[
-                np.random.RandomState(seed=seed).permutation(n) % WORLD_SIZE == RANK
-            ]
+        if rank > -1:
+            self.indices = self.indices[np.random.RandomState(seed=seed).permutation(n) % WORLD_SIZE == RANK]
 
-        # Update labels
-        # filter labels to include only these classes (optional)
         include_class = []
         self.segments = list(self.segments)
         include_class_array = np.array(include_class).reshape(1, -1)
@@ -802,26 +738,20 @@ class LoadImagesAndLabels(Dataset):
                 j = (label[:, 0:1] == include_class_array).any(1)
                 self.labels[i] = label[j]
                 if segment:
-                    self.segments[i] = [
-                        segment[idx] for idx, elem in enumerate(j) if elem
-                    ]
-            if single_cls:  # single-class training, merge all classes into 0
+                    self.segments[i] = [segment[idx] for idx, elem in enumerate(j) if elem]
+            if single_cls:
                 self.labels[i][:, 0] = 0
 
-        # Rectangular Training
         if self.rect:
-            # Sort by aspect ratio
-            s = self.shapes  # wh
-            ar = s[:, 1] / s[:, 0]  # aspect ratio
+            s = self.shapes
+            ar = s[:, 1] / s[:, 0]
             irect = ar.argsort()
             self.im_files = [self.im_files[i] for i in irect]
             self.label_files = [self.label_files[i] for i in irect]
             self.labels = [self.labels[i] for i in irect]
             self.segments = [self.segments[i] for i in irect]
-            self.shapes = s[irect]  # wh
+            self.shapes = s[irect]
             ar = ar[irect]
-
-            # Set training image shapes
             shapes = [[1, 1]] * nb
             for i in range(nb):
                 ari = ar[bi == i]
@@ -830,93 +760,115 @@ class LoadImagesAndLabels(Dataset):
                     shapes[i] = [maxi, 1]
                 elif mini > 1:
                     shapes[i] = [1, 1 / mini]
+            self.batch_shapes = (np.ceil(np.array(shapes) * img_size / stride + pad).astype(int) * stride)
 
-            self.batch_shapes = (
-                np.ceil(np.array(shapes) * img_size / stride + pad).astype(int) * stride
-            )
-
-        # Cache images into RAM/disk for faster training
         if cache_images == "ram" and not self.check_cache_ram(prefix=prefix):
             cache_images = False
+
         self.ims = [None] * n
         self.npy_files = [Path(f).with_suffix(".npy") for f in self.im_files]
         if cache_images:
-            b, gb = 0, 1 << 30  # bytes of cached images, bytes per gigabytes
+            b, gb = 0, 1 << 30
             self.im_hw0, self.im_hw = [None] * n, [None] * n
-<<<<<<< HEAD
-            fcn = (
-                self.cache_images_to_disk if cache_images == "disk" else self.load_image
-            )
-            results = ThreadPool(NUM_THREADS).imap(lambda i: (i, fcn(i)), self.indices)
-            pbar = tqdm(
-                results,
-                total=len(self.indices),
-                bar_format=TQDM_BAR_FORMAT,
-                disable=LOCAL_RANK > 0,
-            )
-            for i, x in pbar:
-                if cache_images == "disk":
-                    b += self.npy_files[i].stat().st_size
-                else:  # 'ram'
-                    # im, hw_orig, hw_resized = load_image(self, i)
-                    self.ims[i], self.im_hw0[i], self.im_hw[i] = x
-                    b += self.ims[i].nbytes * WORLD_SIZE
-                pbar.desc = f"{desc} {nf} images, {nm + ne} backgrounds, {nc} corrupt"
-
-                pbar.desc = f"{prefix}Caching images ({b / gb:.1f}GB {cache_images})"
-
-            pbar.close()
-=======
-            fcn = self.cache_images_to_disk if cache_images == "disk" else self.load_image
+            fcn = self.load_image
             with ThreadPool(NUM_THREADS) as pool:
                 results = pool.imap(lambda i: (i, fcn(i)), self.indices)
                 pbar = tqdm(results, total=len(self.indices), bar_format=TQDM_BAR_FORMAT, disable=LOCAL_RANK > 0)
                 for i, x in pbar:
-                    if cache_images == "disk":
-                        b += self.npy_files[i].stat().st_size
-                    else:  # 'ram'
-                        self.ims[i], self.im_hw0[i], self.im_hw[i] = x  # im, hw_orig, hw_resized = load_image(self, i)
-                        b += self.ims[i].nbytes * WORLD_SIZE
-                    pbar.desc = f"{prefix}Caching images ({b / gb:.1f}GB {cache_images})"
+                    self.ims[i], self.im_hw0[i], self.im_hw[i] = x
+                    b += self.ims[i].nbytes * WORLD_SIZE
+                    pbar.desc = f"{prefix}Caching images ({b / gb:.1f}GB ram)"
                 pbar.close()
->>>>>>> fe1d4d9947735473006c68513168fef093ff17ce
+
+    def __getitem__(self, index):
+        hyp = self.hyp
+        mosaic = self.mosaic and random.random() < hyp.get("mosaic", 0.0)
+
+        if mosaic:
+            img, labels = self.load_mosaic(index)
+            shapes = None
+            if random.random() < hyp.get("mixup", 0.0):
+                img2, labels2 = self.load_mosaic(random.choice(self.indices))
+                img, labels = mixup(img, labels, img2, labels2)
+        else:
+            img, (h0, w0), (h, w) = self.load_image(index)
+            shape = self.batch_shapes[self.batch[index]] if self.rect else self.img_size
+            img, ratio, pad = letterbox(img, shape, auto=False, scaleup=self.augment)
+            shapes = (h0, w0), ((h / h0, w / w0), pad)
+
+            labels = self.labels[index].copy()
+            if labels.size:
+                labels[:, 1:] = xywhn2xyxy(labels[:, 1:], ratio[0] * w, ratio[1] * h, pad[0], pad[1])
+
+            if self.augment:
+                img, labels = random_perspective(
+                    img, labels,
+                    degrees=hyp.get("degrees", 0.0),
+                    translate=hyp.get("translate", 0.0),
+                    scale=hyp.get("scale", 0.0),
+                    shear=hyp.get("shear", 0.0),
+                    perspective=hyp.get("perspective", 0.0),
+                )
+
+        if labels.size:
+            labels[:, 1:5] = xyxy2xywhn(labels[:, 1:5], w=img.shape[1], h=img.shape[0], clip=True, eps=1e-3)
+
+        if self.augment:
+            img, labels = self.albumentations(img, labels)
+            augment_hsv(img, hgain=hyp.get("hsv_h", 0.015), sgain=hyp.get("hsv_s", 0.7), vgain=hyp.get("hsv_v", 0.4))
+            if random.random() < hyp.get("flipud", 0.0):
+                img = np.flipud(img)
+                labels[:, 2] = 1 - labels[:, 2]
+            if random.random() < hyp.get("fliplr", 0.0):
+                img = np.fliplr(img)
+                labels[:, 1] = 1 - labels[:, 1]
+
+        nl = len(labels)
+        labels_out = torch.zeros((nl, 6))
+        if nl:
+            labels_out[:, 1:] = torch.from_numpy(labels)
+
+        img = img.transpose((2, 0, 1))[::-1]
+        img = np.ascontiguousarray(img)
+
+        return torch.from_numpy(img), labels_out, self.im_files[index], shapes
+
+    def __len__(self):
+        return len(self.im_files)
+
+    def load_image(self, index):
+        """Loads image from file and resizes."""
+        img_path = self.im_files[index]
+        img = cv2.imread(img_path)
+        assert img is not None, f"Image Not Found: {img_path}"
+        h0, w0 = img.shape[:2]
+        r = self.img_size / max(h0, w0)
+        if r != 1:
+            interp = random.choice([cv2.INTER_LINEAR, cv2.INTER_AREA])
+            img = cv2.resize(img, (int(w0 * r), int(h0 * r)), interpolation=interp)
+        return img, (h0, w0), img.shape[:2]
 
     def check_cache_ram(self, safety_margin=0.1, prefix=""):
-        """Checks if available RAM is sufficient for caching images, adjusting for a safety margin."""
-        b, gb = 0, 1 << 30  # bytes of cached images, bytes per gigabytes
-        n = min(self.n, 30)  # extrapolate from 30 random images
+        b, gb = 0, 1 << 30
+        n = min(self.n, 30)
         for _ in range(n):
-            im = cv2.imread(random.choice(self.im_files))  # sample image
-            ratio = self.img_size / max(im.shape[0], im.shape[1])  # max(h, w)  # ratio
+            im = cv2.imread(random.choice(self.im_files))
+            ratio = self.img_size / max(im.shape[0], im.shape[1])
             b += im.nbytes * ratio**2
-        mem_required = b * self.n / n  # GB required to cache dataset into RAM
+        mem_required = b * self.n / n
         mem = psutil.virtual_memory()
-        # to cache or not to cache, that is the question
         cache = mem_required * (1 + safety_margin) < mem.available
         if not cache:
-            LOGGER.info(
-                f"{prefix}{mem_required / gb:.1f}GB RAM required, "
-                f"{mem.available / gb:.1f}/{mem.total / gb:.1f}GB available, "
-                f"{'caching images ✅' if cache else 'not caching images ⚠️'}"
-            )
+            LOGGER.info(f"{prefix}{mem_required / gb:.1f}GB RAM required, {mem.available / gb:.1f}/{mem.total / gb:.1f}GB available")
         return cache
 
     def cache_labels(self, path=Path("./labels.cache"), prefix=""):
-        """Caches dataset labels, verifies images, reads shapes, and tracks dataset integrity."""
-        x = {}  # dict
-        # number missing, found, empty, corrupt, messages
+        x = {}
         nm, nf, ne, nc, msgs = 0, 0, 0, 0, []
         desc = f"{prefix}Scanning {path.parent / path.stem}..."
         with Pool(NUM_THREADS) as pool:
-            pbar = tqdm(
-                pool.imap(
-                    verify_image_label,
-                    zip(self.im_files, self.label_files, repeat(prefix)),
-                ),
-                desc=desc,
-                total=len(self.im_files),
-                bar_format=TQDM_BAR_FORMAT,
-            )
+            pbar = tqdm(pool.imap(verify_image_label, zip(self.im_files, self.label_files, repeat(prefix))),
+                        desc=desc, total=len(self.im_files), bar_format=TQDM_BAR_FORMAT)
             for im_file, lb, shape, segments, nm_f, nf_f, ne_f, nc_f, msg in pbar:
                 nm += nm_f
                 nf += nf_f
@@ -927,134 +879,18 @@ class LoadImagesAndLabels(Dataset):
                 if msg:
                     msgs.append(msg)
                 pbar.desc = f"{desc} {nf} images, {nm + ne} backgrounds, {nc} corrupt"
-
         pbar.close()
-        if msgs:
-            LOGGER.info("\n".join(msgs))
-        if nf == 0:
-            LOGGER.warning(
-                f"{prefix}WARNING ⚠️ No labels found in {
-                           path}. {HELP_URL}"
-            )
         x["hash"] = get_hash(self.label_files + self.im_files)
         x["results"] = nf, nm, ne, nc, len(self.im_files)
-        x["msgs"] = msgs  # warnings
-        x["version"] = self.cache_version  # cache version
+        x["msgs"] = msgs
+        x["version"] = self.cache_version
         try:
-            np.save(path, x)  # save cache for next time
-            path.with_suffix(".cache.npy").rename(path)  # remove .npy suffix
+            np.save(path, x)
+            path.with_suffix(".cache.npy").rename(path)
             LOGGER.info(f"{prefix}New cache created: {path}")
         except Exception as e:
-            LOGGER.warning(
-                f"{prefix}WARNING ⚠️ Cache directory {
-                           path.parent} is not writeable: {e}"
-            )  # not writeable
+            LOGGER.warning(f"{prefix}WARNING ⚠️ Cache directory {path.parent} is not writeable: {e}")
         return x
-
-    def __len__(self):
-        """Returns the number of images in the dataset."""
-        return len(self.im_files)
-
-    # def __iter__(self):
-    #     self.count = -1
-    #     print('ran dataset iter')
-    #     #self.shuffled_vector = np.random.permutation(self.nF) if self.augment else np.arange(self.nF)
-    #     return self
-
-
-<<<<<<< HEAD
-def __getitem__(self, index):
-    """Fetches the dataset item at the given index, considering linear, shuffled, or weighted sampling."""
-    index = self.indices[index]  # linear, shuffled, or image_weights
-=======
-        hyp = self.hyp
-        if mosaic := self.mosaic and random.random() < hyp["mosaic"]:
-            # Load mosaic
-            img, labels = self.load_mosaic(index)
-            shapes = None
->>>>>>> fe1d4d9947735473006c68513168fef093ff17ce
-
-    hyp = self.hyp
-    mosaic = self.mosaic and random.random() < hyp["mosaic"]
-    if mosaic:
-        # Add the rest of your code here
-        pass
-        # Load mosaic
-        img, labels = self.load_mosaic(index)
-        shapes = None
-
-        # MixUp augmentation
-        if random.random() < hyp["mixup"]:
-            img, labels = mixup(
-                img, labels, *self.load_mosaic(random.choice(self.indices))
-            )
-
-    else:
-        # Load image
-        img, (h0, w0), (h, w) = self.load_image(index)
-
-        # Letterbox
-        # final letterboxed shape
-        shape = self.batch_shapes[self.batch[index]] if self.rect else self.img_size
-        img, ratio, pad = letterbox(img, shape, auto=False, scaleup=self.augment)
-        shapes = (h0, w0), ((h / h0, w / w0), pad)  # for COCO mAP rescaling
-
-        labels = self.labels[index].copy()
-        if labels.size:  # normalized xywh to pixel xyxy format
-            labels[:, 1:] = xywhn2xyxy(
-                labels[:, 1:], ratio[0] * w, ratio[1] * h, padw=pad[0], padh=pad[1]
-            )
-
-        if self.augment:
-            img, labels = random_perspective(
-                img,
-                labels,
-                degrees=hyp["degrees"],
-                translate=hyp["translate"],
-                scale=hyp["scale"],
-                shear=hyp["shear"],
-                perspective=hyp["perspective"],
-            )
-
-    nl = len(labels)  # number of labels
-    if nl:
-        labels[:, 1:5] = xyxy2xywhn(
-            labels[:, 1:5], w=img.shape[1], h=img.shape[0], clip=True, eps=1e-3
-        )
-
-    if self.augment:
-        # Albumentations
-        img, labels = self.albumentations(img, labels)
-        nl = len(labels)  # update after albumentations
-
-        # HSV color-space
-        augment_hsv(img, hgain=hyp["hsv_h"], sgain=hyp["hsv_s"], vgain=hyp["hsv_v"])
-
-        # Flip up-down
-        if random.random() < hyp["flipud"]:
-            img = np.flipud(img)
-            if nl:
-                labels[:, 2] = 1 - labels[:, 2]
-
-        # Flip left-right
-        if random.random() < hyp["fliplr"]:
-            img = np.fliplr(img)
-            if nl:
-                labels[:, 1] = 1 - labels[:, 1]
-
-    labels_out = torch.zeros((nl, 6))
-    if nl:
-        labels_out[:, 1:] = torch.from_numpy(labels)
-
-    # Convert
-    img = img.transpose((2, 0, 1))[::-1]  # HWC to CHW, BGR to RGB
-    img = np.ascontiguousarray(img)
-
-    # Debug print
-    print(f"Image shape: {img.shape}, Labels shape: {labels_out.shape}")
-
-    return torch.from_numpy(img), labels_out, self.im_files[index], shapes
-
     def load_image(self, i):
         """
         Loads an image by index, returning the image, its original dimensions, and resized dimensions.
@@ -1462,17 +1298,10 @@ def verify_image_label(args):
                         1,
                     )
                 lb = np.array(lb, dtype=np.float32)
-<<<<<<< HEAD
-            nl = len(lb)
-            if nl:
+            if nl := len(lb):
                 assert (
                     lb.shape[1] == 5
-                ), f"labels require 5 columns, {
-                    lb.shape[1]} columns detected"
-=======
-            if nl := len(lb):
-                assert lb.shape[1] == 5, f"labels require 5 columns, {lb.shape[1]} columns detected"
->>>>>>> fe1d4d9947735473006c68513168fef093ff17ce
+                ), f"labels require 5 columns, {lb.shape[1]} columns detected"
                 assert (lb >= 0).all(), f"negative label values {lb[lb < 0]}"
                 assert (
                     lb[:, 1:] <= 1
@@ -1709,11 +1538,15 @@ class ClassificationDataset(torchvision.datasets.ImageFolder):
 
         # Apply transformations
         if self.album_transforms:
-            sample = self.album_transforms(image=cv2.cvtColor(im, cv2.COLOR_BGR2RGB))["image"]
+            sample = self.album_transforms(image=cv2.cvtColor(im, cv2.COLOR_BGR2RGB))[
+                "image"
+            ]
         else:
             sample = self.torch_transforms(im)
 
         return sample, j  # Ensure this is inside the function
+
+
 def create_classification_dataloader(
     path,
     imgsz=224,
